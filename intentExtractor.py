@@ -14,7 +14,7 @@ class IntentExtractorApp:
         self.root.geometry("1100x650")
 
         self.recent_files = []
-        self.intents_data = {}  # ✅ NEW: stores intents + phrases
+        self.intents_data = {}  # NEW: stores intents + phrases
 
         self.setup_ui()
 
@@ -69,7 +69,7 @@ class IntentExtractorApp:
         left_frame = tk.Frame(main_frame)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
 
-        # ✅ Intent list
+        # Intent list
         tk.Label(left_frame, text="Intents", font=("Arial", 10, "bold")).pack(anchor="w")
 
         self.intent_listbox = tk.Listbox(left_frame, height=6)
@@ -112,6 +112,7 @@ class IntentExtractorApp:
     # ------------------------
     # CORE LOGIC
     # ------------------------
+    
     def extract_intents(self):
         self.intents_data.clear()
         self.intent_listbox.delete(0, tk.END)
@@ -131,70 +132,84 @@ class IntentExtractorApp:
 
         for item in data:
 
-            # Dialogflow
+            # ✅ Dialogflow-style
             if isinstance(item, dict) and "trainingPhrases" in item:
-                name = item.get("displayName") or item.get("name")
 
-                # ✅ fallback: use first phrase
-                if not name:
-                    first_phrase = ""
-                    if item.get("trainingPhrases"):
-                        parts = item["trainingPhrases"][0].get("parts", [])
-                        first_phrase = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
-
-                    name = first_phrase[:30] + "..." if first_phrase else f"Intent {intent_count + 1}"
-
-
-                if filter_text and filter_text not in name.lower():
-                    continue
-
+                # --- Build phrases FIRST ---
                 phrases = []
+
                 for phrase in item.get("trainingPhrases", []):
                     parts = phrase.get("parts", [])
-                    full_text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+                    full_text = "".join(
+                        p.get("text", "") for p in parts if isinstance(p, dict)
+                    ).strip()
 
                     if full_text:
-                        phrases.append(full_text)
-                        phrase_count += 1
+                        # ✅ FILTER BY PHRASE
+                        if not filter_text or filter_text in full_text.lower():
+                            phrases.append(full_text)
+                            phrase_count += 1
 
+                # ✅ Only include intent if phrases matched
                 if phrases:
+
+                    name = item.get("displayName") or item.get("name")
+
+                    # ✅ Fallback name
+                    if not name:
+                        name = phrases[0][:30] + "..." if phrases else f"Intent {intent_count + 1}"
+
                     self.intents_data[name] = phrases
-                    self.intent_listbox.insert(tk.END, name)
+
+                    # ✅ Show count in list
+                    self.intent_listbox.insert(tk.END, f"{name} ({len(phrases)})")
+
                     intent_count += 1
 
-            # Generic
+            # ✅ Generic schema
             elif isinstance(item, dict):
+
                 for intent in item.get("intents", []):
+
                     name = intent.get("name") or intent.get("intent")
+                    phrases = []
 
-                    if filter_text and filter_text not in name.lower():
-                        continue
-
-                    phrases = intent.get("examples", [])
+                    for ex in intent.get("examples", []):
+                        if isinstance(ex, str):
+                            # ✅ FILTER BY PHRASE
+                            if not filter_text or filter_text in ex.lower():
+                                phrases.append(ex)
+                                phrase_count += 1
 
                     if phrases:
                         self.intents_data[name] = phrases
-                        self.intent_listbox.insert(tk.END, name)
+                        self.intent_listbox.insert(tk.END, f"{name} ({len(phrases)})")
                         intent_count += 1
-                        phrase_count += len(phrases)
 
         self.stats_label.config(text=f"{intent_count} intents | {phrase_count} phrases")
 
-        # ✅ Auto-show first intent
+        # ✅ Auto-select first
         if self.intents_data:
-            first = next(iter(self.intents_data))
-            self.show_intent(first)
+            self.intent_listbox.selection_set(0)
+            self.intent_listbox.event_generate("<<ListboxSelect>>")
+
 
     # ------------------------
     # INTENT VIEW
     # ------------------------
+
     def on_intent_select(self, event):
         selection = self.intent_listbox.curselection()
         if not selection:
             return
 
-        intent = self.intent_listbox.get(selection[0])
-        self.show_intent(intent)
+        display_text = self.intent_listbox.get(selection[0])
+
+        # ✅ Remove "(count)"
+        name = display_text.rsplit(" (", 1)[0]
+
+        self.show_intent(name)
+
 
     def show_intent(self, name):
         phrases = self.intents_data.get(name, [])
@@ -214,8 +229,10 @@ class IntentExtractorApp:
             return
 
         with open(path, "r", encoding="utf-8") as f:
-            self.set_text(self.input_text, f.read())
+            data = json.load(f)
+            pretty = json.dumps(data, indent=2)
 
+        self.set_text(self.input_text, pretty)
         self.add_to_recent(path)
 
     def save_markdown(self):
