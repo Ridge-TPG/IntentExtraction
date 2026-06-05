@@ -14,6 +14,7 @@ class IntentExtractorApp:
         self.root.geometry("1100x650")
 
         self.recent_files = []
+        self.intents_data = {}  # ✅ NEW: stores intents + phrases
 
         self.setup_ui()
 
@@ -21,11 +22,12 @@ class IntentExtractorApp:
     # UI SETUP
     # ------------------------
     def setup_ui(self):
-        # Toolbar
         toolbar = tk.Frame(self.root)
         toolbar.pack(fill=tk.X, padx=10, pady=5)
 
-        self.file_menu_button = tk.Menubutton(toolbar, text="Open JSON", relief=tk.RAISED)
+        tk.Label(toolbar, text="File:").pack(side=tk.LEFT, padx=5)
+
+        self.file_menu_button = tk.Menubutton(toolbar, text="Open JSON")
         self.file_menu = tk.Menu(self.file_menu_button, tearoff=0)
         self.file_menu_button.config(menu=self.file_menu)
 
@@ -34,36 +36,22 @@ class IntentExtractorApp:
         self.recent_menu = tk.Menu(self.file_menu, tearoff=0)
         self.file_menu.add_cascade(label="Recent Files", menu=self.recent_menu)
 
-        # Group: File actions
-        tk.Label(toolbar, text="File:").pack(side=tk.LEFT, padx=5)
+        self.file_menu_button.pack(side=tk.LEFT)
 
-        self.file_menu_button.pack(side=tk.LEFT, padx=5)
-
-        # Separator
         tk.Label(toolbar, text=" | ").pack(side=tk.LEFT)
 
-        # Primary action
-        tk.Button(
-            toolbar,
-            text="Extract",
-            command=self.extract_intents,
-            bg="#2ECC71",
-            fg="white",
-            font=("Arial", 10, "bold"),
-            padx=10,
-            pady=3
-        ).pack(side=tk.LEFT, padx=5)
+        tk.Button(toolbar, text="Extract", command=self.extract_intents,
+                  bg="#2ECC71", fg="white").pack(side=tk.LEFT, padx=5)
 
-        # Separator
         tk.Label(toolbar, text=" | ").pack(side=tk.LEFT)
 
-        # Output actions
         tk.Label(toolbar, text="Output:").pack(side=tk.LEFT, padx=5)
 
-        tk.Button(toolbar, text="Copy", command=self.copy_to_clipboard).pack(side=tk.LEFT, padx=5)
-        tk.Button(toolbar, text="Save", command=self.save_markdown).pack(side=tk.LEFT, padx=5)
-        tk.Button(toolbar, text="Clear", command=self.clear_all).pack(side=tk.LEFT, padx=5)
+        tk.Button(toolbar, text="Copy", command=self.copy_to_clipboard).pack(side=tk.LEFT)
+        tk.Button(toolbar, text="Save", command=self.save_markdown).pack(side=tk.LEFT)
+        tk.Button(toolbar, text="Clear", command=self.clear_all).pack(side=tk.LEFT)
 
+        tk.Button(toolbar, text="Export CSV", command=self.export_csv).pack(side=tk.RIGHT)
 
         # Filter
         filter_frame = tk.Frame(self.root)
@@ -73,35 +61,35 @@ class IntentExtractorApp:
         self.filter_entry = tk.Entry(filter_frame)
         self.filter_entry.pack(fill=tk.X, expand=True, padx=5)
 
-        # Main panels
+        # Main layout
         main_frame = tk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # LEFT
+        # LEFT PANEL
         left_frame = tk.Frame(main_frame)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
 
+        # ✅ Intent list
+        tk.Label(left_frame, text="Intents", font=("Arial", 10, "bold")).pack(anchor="w")
+
+        self.intent_listbox = tk.Listbox(left_frame, height=6)
+        self.intent_listbox.pack(fill=tk.X)
+        self.intent_listbox.bind("<<ListboxSelect>>", self.on_intent_select)
+
+        # JSON input
         tk.Label(left_frame, text="JSON Input", font=("Arial", 11, "bold")).pack(anchor="w")
 
         input_scroll = tk.Scrollbar(left_frame)
         input_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        
-        self.input_text = tk.Text(
-            left_frame,
-            yscrollcommand=input_scroll.set,
-            state="disabled"  # ✅ read-only
-        )
-
+        self.input_text = tk.Text(left_frame, yscrollcommand=input_scroll.set, state="disabled")
         self.input_text.pack(fill=tk.BOTH, expand=True)
 
         input_scroll.config(command=self.input_text.yview)
 
-        # RIGHT
+        # RIGHT PANEL
         right_frame = tk.Frame(main_frame)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5)
-
-        tk.Button(toolbar, text="Export CSV", command=self.export_csv).pack(side=tk.RIGHT, padx=5)
 
         tk.Label(right_frame, text="Markdown Output", font=("Arial", 11, "bold")).pack(anchor="w")
 
@@ -111,17 +99,10 @@ class IntentExtractorApp:
         output_scroll = tk.Scrollbar(right_frame)
         output_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        
         self.output_text = tk.Text(
             right_frame,
             yscrollcommand=output_scroll.set,
-            font=("Consolas", 10)  # ✅ improve readability 
-        )
-
-        self.output_text = tk.Text(
-            right_frame,
-            yscrollcommand=output_scroll.set,
-            state="disabled",   # ✅ read-only
+            state="disabled",
             font=("Consolas", 10)
         )
         self.output_text.pack(fill=tk.BOTH, expand=True)
@@ -132,91 +113,110 @@ class IntentExtractorApp:
     # CORE LOGIC
     # ------------------------
     def extract_intents(self):
-        try:
-            raw = self.input_text.get("1.0", tk.END)
-            
-            # NEW: Empty input check
-            if not raw:
-                messagebox.showerror("Error", "JSON input is empty. Please load or paste a JSON file.")
-                
-                return
+        self.intents_data.clear()
+        self.intent_listbox.delete(0, tk.END)
 
-            data = json.loads(raw)
+        raw = self.input_text.get("1.0", tk.END).strip()
+        if not raw:
+            return
 
-            filter_text = self.filter_entry.get().lower()
+        data = json.loads(raw)
+        filter_text = self.filter_entry.get().lower()
 
-            md = "# Extracted Intent Phrases:\n\n"
-            intent_count = 0
-            phrase_count = 0
+        intent_count = 0
+        phrase_count = 0
 
-            if isinstance(data, dict):
-                data = [data]
+        if isinstance(data, dict):
+            data = [data]
 
-            for i, item in enumerate(data):
+        for item in data:
 
-                # Dialogflow
-                if isinstance(item, dict) and "trainingPhrases" in item:
-                    name = item.get("displayName") or item.get("name") or f"Intent {i+1}"
+            # Dialogflow
+            if isinstance(item, dict) and "trainingPhrases" in item:
+                name = item.get("displayName") or item.get("name")
+
+                # ✅ fallback: use first phrase
+                if not name:
+                    first_phrase = ""
+                    if item.get("trainingPhrases"):
+                        parts = item["trainingPhrases"][0].get("parts", [])
+                        first_phrase = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+
+                    name = first_phrase[:30] + "..." if first_phrase else f"Intent {intent_count + 1}"
+
+
+                if filter_text and filter_text not in name.lower():
+                    continue
+
+                phrases = []
+                for phrase in item.get("trainingPhrases", []):
+                    parts = phrase.get("parts", [])
+                    full_text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+
+                    if full_text:
+                        phrases.append(full_text)
+                        phrase_count += 1
+
+                if phrases:
+                    self.intents_data[name] = phrases
+                    self.intent_listbox.insert(tk.END, name)
+                    intent_count += 1
+
+            # Generic
+            elif isinstance(item, dict):
+                for intent in item.get("intents", []):
+                    name = intent.get("name") or intent.get("intent")
 
                     if filter_text and filter_text not in name.lower():
                         continue
 
-                    intent_count += 1
-                    md += f"## {name}\n\n**Extracted Intents:**\n\n"
+                    phrases = intent.get("examples", [])
 
-                    for phrase in item.get("trainingPhrases", []):
-                        parts = phrase.get("parts", [])
-                        full_text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
-
-                        if full_text:
-                            md += f"- {full_text}\n\n"
-                            phrase_count += 1
-
-                # Generic
-                elif isinstance(item, dict):
-                    intents = item.get("intents", [])
-
-                    for intent in intents:
-                        name = intent.get("name") or intent.get("intent")
-
-                        if filter_text and filter_text not in name.lower():
-                            continue
-
+                    if phrases:
+                        self.intents_data[name] = phrases
+                        self.intent_listbox.insert(tk.END, name)
                         intent_count += 1
-                        md += f"## {name}\n\n**Examples:**\n\n"
+                        phrase_count += len(phrases)
 
-                        for ex in intent.get("examples", []):
-                            md += f"- {ex}\n\n"
-                            phrase_count += 1
+        self.stats_label.config(text=f"{intent_count} intents | {phrase_count} phrases")
 
-            self.set_text(self.output_text, md)
+        # ✅ Auto-show first intent
+        if self.intents_data:
+            first = next(iter(self.intents_data))
+            self.show_intent(first)
 
-            self.stats_label.config(text=f"{intent_count} intents | {phrase_count} phrases")
+    # ------------------------
+    # INTENT VIEW
+    # ------------------------
+    def on_intent_select(self, event):
+        selection = self.intent_listbox.curselection()
+        if not selection:
+            return
 
-        except Exception as e:
-            messagebox.showerror("Error - Empty value", str(e))
+        intent = self.intent_listbox.get(selection[0])
+        self.show_intent(intent)
+
+    def show_intent(self, name):
+        phrases = self.intents_data.get(name, [])
+
+        md = f"# {name}\n\n**Phrases:**\n\n"
+        for p in phrases:
+            md += f"- {p}\n\n"
+
+        self.set_text(self.output_text, md)
 
     # ------------------------
     # FILE ACTIONS
     # ------------------------
-    
     def open_file(self):
         path = filedialog.askopenfilename(filetypes=[("JSON Files", "*.json")])
         if not path:
             return
 
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                content = f.read()
+        with open(path, "r", encoding="utf-8") as f:
+            self.set_text(self.input_text, f.read())
 
-            # ✅ Use helper
-            self.set_text(self.input_text, content)
-
-            self.add_to_recent(path)
-
-        except Exception as e:
-            self.show_error(f"Failed to open file: {str(e)}")
-
+        self.add_to_recent(path)
 
     def save_markdown(self):
         folder = "saved-phrases"
@@ -232,18 +232,15 @@ class IntentExtractorApp:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(self.output_text.get("1.0", tk.END))
 
-            messagebox.showinfo("Saved", path)
-
     def copy_to_clipboard(self):
         self.root.clipboard_clear()
         self.root.clipboard_append(self.output_text.get("1.0", tk.END))
 
-    
     def clear_all(self):
         self.set_text(self.input_text, "")
         self.set_text(self.output_text, "")
+        self.intent_listbox.delete(0, tk.END)
         self.stats_label.config(text="0 intents | 0 phrases")
-
 
     # ------------------------
     # RECENT FILES
@@ -269,26 +266,22 @@ class IntentExtractorApp:
             )
 
     def open_recent(self, path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                self.input_text.delete("1.0", tk.END)
-                self.input_text.insert(tk.END, f.read())
-        except:
-            messagebox.showerror("Error", "File not found")
+        with open(path, "r", encoding="utf-8") as f:
+            self.set_text(self.input_text, f.read())
 
-    
+    # ------------------------
+    # HELPERS
+    # ------------------------
     def set_text(self, widget, content):
-        widget.config(state="normal")      # ✅ unlock
-        widget.delete("1.0", tk.END)       # clear
-        widget.insert("1.0", content)      # write
-        widget.config(state="disabled")    # ✅ lock again
+        widget.config(state="normal")
+        widget.delete("1.0", tk.END)
+        widget.insert("1.0", content)
+        widget.config(state="disabled")
 
-    
     # ------------------------
     # EXPORT CSV
     # ------------------------
     def export_csv(self):
-
         folder = "saved-phrases"
         os.makedirs(folder, exist_ok=True)
 
@@ -301,16 +294,13 @@ class IntentExtractorApp:
         if not path:
             return
 
-        lines = self.output_text.get("1.0", tk.END).split("\n")
-
         with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
 
-            for line in lines:
-                if line.startswith("- "):
-                    writer.writerow([line[2:]])
+            for phrases in self.intents_data.values():
+                for p in phrases:
+                    writer.writerow([p])
 
-        messagebox.showinfo("Saved", "CSV exported successfully")
 
 # ------------------------
 # RUN APP
