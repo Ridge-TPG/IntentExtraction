@@ -1,5 +1,6 @@
 import json
 import os
+import csv
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
@@ -33,15 +34,36 @@ class IntentExtractorApp:
         self.recent_menu = tk.Menu(self.file_menu, tearoff=0)
         self.file_menu.add_cascade(label="Recent Files", menu=self.recent_menu)
 
+        # Group: File actions
+        tk.Label(toolbar, text="File:").pack(side=tk.LEFT, padx=5)
+
         self.file_menu_button.pack(side=tk.LEFT, padx=5)
 
-        tk.Button(toolbar, text="Extract", command=self.extract_intents, bg="#4CAF50", fg="white").pack(side=tk.LEFT, padx=5)
+        # Separator
+        tk.Label(toolbar, text=" | ").pack(side=tk.LEFT)
 
-        tk.Label(toolbar, text="|").pack(side=tk.LEFT, padx=10)
+        # Primary action
+        tk.Button(
+            toolbar,
+            text="Extract",
+            command=self.extract_intents,
+            bg="#2ECC71",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            padx=10,
+            pady=3
+        ).pack(side=tk.LEFT, padx=5)
 
-        tk.Button(toolbar, text="Copy", command=self.copy_to_clipboard).pack(side=tk.LEFT)
-        tk.Button(toolbar, text="Save", command=self.save_markdown).pack(side=tk.LEFT)
-        tk.Button(toolbar, text="Clear", command=self.clear_all).pack(side=tk.LEFT)
+        # Separator
+        tk.Label(toolbar, text=" | ").pack(side=tk.LEFT)
+
+        # Output actions
+        tk.Label(toolbar, text="Output:").pack(side=tk.LEFT, padx=5)
+
+        tk.Button(toolbar, text="Copy", command=self.copy_to_clipboard).pack(side=tk.LEFT, padx=5)
+        tk.Button(toolbar, text="Save", command=self.save_markdown).pack(side=tk.LEFT, padx=5)
+        tk.Button(toolbar, text="Clear", command=self.clear_all).pack(side=tk.LEFT, padx=5)
+
 
         # Filter
         filter_frame = tk.Frame(self.root)
@@ -64,7 +86,13 @@ class IntentExtractorApp:
         input_scroll = tk.Scrollbar(left_frame)
         input_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.input_text = tk.Text(left_frame, yscrollcommand=input_scroll.set)
+        
+        self.input_text = tk.Text(
+            left_frame,
+            yscrollcommand=input_scroll.set,
+            state="disabled"  # ✅ read-only
+        )
+
         self.input_text.pack(fill=tk.BOTH, expand=True)
 
         input_scroll.config(command=self.input_text.yview)
@@ -72,6 +100,8 @@ class IntentExtractorApp:
         # RIGHT
         right_frame = tk.Frame(main_frame)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5)
+
+        tk.Button(toolbar, text="Export CSV", command=self.export_csv).pack(side=tk.RIGHT, padx=5)
 
         tk.Label(right_frame, text="Markdown Output", font=("Arial", 11, "bold")).pack(anchor="w")
 
@@ -81,7 +111,19 @@ class IntentExtractorApp:
         output_scroll = tk.Scrollbar(right_frame)
         output_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.output_text = tk.Text(right_frame, yscrollcommand=output_scroll.set)
+        
+        self.output_text = tk.Text(
+            right_frame,
+            yscrollcommand=output_scroll.set,
+            font=("Consolas", 10)  # ✅ improve readability 
+        )
+
+        self.output_text = tk.Text(
+            right_frame,
+            yscrollcommand=output_scroll.set,
+            state="disabled",   # ✅ read-only
+            font=("Consolas", 10)
+        )
         self.output_text.pack(fill=tk.BOTH, expand=True)
 
         output_scroll.config(command=self.output_text.yview)
@@ -92,6 +134,13 @@ class IntentExtractorApp:
     def extract_intents(self):
         try:
             raw = self.input_text.get("1.0", tk.END)
+            
+            # NEW: Empty input check
+            if not raw:
+                messagebox.showerror("Error", "JSON input is empty. Please load or paste a JSON file.")
+                
+                return
+
             data = json.loads(raw)
 
             filter_text = self.filter_entry.get().lower()
@@ -140,27 +189,34 @@ class IntentExtractorApp:
                             md += f"- {ex}\n\n"
                             phrase_count += 1
 
-            self.output_text.delete("1.0", tk.END)
-            self.output_text.insert(tk.END, md)
+            self.set_text(self.output_text, md)
 
             self.stats_label.config(text=f"{intent_count} intents | {phrase_count} phrases")
 
         except Exception as e:
-            messagebox.showerror("Error", str(e))
+            messagebox.showerror("Error - Empty value", str(e))
 
     # ------------------------
     # FILE ACTIONS
     # ------------------------
+    
     def open_file(self):
         path = filedialog.askopenfilename(filetypes=[("JSON Files", "*.json")])
         if not path:
             return
 
-        with open(path, "r", encoding="utf-8") as f:
-            self.input_text.delete("1.0", tk.END)
-            self.input_text.insert(tk.END, f.read())
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
 
-        self.add_to_recent(path)
+            # ✅ Use helper
+            self.set_text(self.input_text, content)
+
+            self.add_to_recent(path)
+
+        except Exception as e:
+            self.show_error(f"Failed to open file: {str(e)}")
+
 
     def save_markdown(self):
         folder = "saved-phrases"
@@ -182,10 +238,12 @@ class IntentExtractorApp:
         self.root.clipboard_clear()
         self.root.clipboard_append(self.output_text.get("1.0", tk.END))
 
+    
     def clear_all(self):
-        self.input_text.delete("1.0", tk.END)
-        self.output_text.delete("1.0", tk.END)
+        self.set_text(self.input_text, "")
+        self.set_text(self.output_text, "")
         self.stats_label.config(text="0 intents | 0 phrases")
+
 
     # ------------------------
     # RECENT FILES
@@ -218,6 +276,41 @@ class IntentExtractorApp:
         except:
             messagebox.showerror("Error", "File not found")
 
+    
+    def set_text(self, widget, content):
+        widget.config(state="normal")      # ✅ unlock
+        widget.delete("1.0", tk.END)       # clear
+        widget.insert("1.0", content)      # write
+        widget.config(state="disabled")    # ✅ lock again
+
+    
+    # ------------------------
+    # EXPORT CSV
+    # ------------------------
+    def export_csv(self):
+
+        folder = "saved-phrases"
+        os.makedirs(folder, exist_ok=True)
+
+        path = filedialog.asksaveasfilename(
+            initialdir=folder,
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv")]
+        )
+
+        if not path:
+            return
+
+        lines = self.output_text.get("1.0", tk.END).split("\n")
+
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+
+            for line in lines:
+                if line.startswith("- "):
+                    writer.writerow([line[2:]])
+
+        messagebox.showinfo("Saved", "CSV exported successfully")
 
 # ------------------------
 # RUN APP
