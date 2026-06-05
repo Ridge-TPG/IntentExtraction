@@ -52,11 +52,18 @@ No Python environment setup needed! easy to run and use.
 - download .exe file
 
 # Rebuilding For new release
-- clean old build files: 
+- clean old build files (windows): 
 ```bash
 rmdir /s /q build
 rmdir /s /q dist
 del *.spec
+```
+
+- clean old build files (linux): 
+```bash
+rm -rf build
+rm -rf dist
+rm *.spec
 ```
 
 - rebuild app:
@@ -66,5 +73,5 @@ python -m PyInstaller --onefile --windowed intentExtractor.py
 
 - rebuild with clean flag:
 ```bash
-python -m PyInstaller --onefile --windowed --clean intent_dashboard.py
+python -m PyInstaller --onefile --windowed --clean intentExtractor.py
 ```
