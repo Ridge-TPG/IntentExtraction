@@ -3,3 +3,7 @@
 /intentExtractor.spec
 README.md
 /saved-phrases
+/__pycache__
+/old
+*.pyc
+*__pycache__/
